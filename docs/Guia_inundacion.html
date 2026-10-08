@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guía de inundación — DROPS-Hydro MX 0.5.4</title>
+<style>
+:root{color-scheme:light}body{font:17px/1.65 system-ui,Segoe UI,sans-serif;color:#173047;background:#edf3f5;margin:0}main{max-width:1040px;margin:28px auto;background:white;padding:48px;border-radius:14px}h1{font-size:34px;line-height:1.2}h2{color:#075f77;margin-top:38px}h3{margin-top:28px}.tag{letter-spacing:.12em;color:#075f77;font-size:13px;font-weight:bold}.note{background:#e5f3f6;border-left:5px solid #087d96;padding:18px 22px}.limits{background:#fff4dd;border-left:5px solid #b77912;padding:18px 22px}table{width:100%;border-collapse:collapse;margin:18px 0;font-size:15px}th,td{padding:11px;border:1px solid #cbdbe0;text-align:left;vertical-align:top}th{background:#edf4f6}code{background:#edf3f5;padding:2px 5px;overflow-wrap:anywhere}.formula{font-family:Consolas,monospace;background:#edf3f5;padding:18px;white-space:pre-wrap}a{color:#075f77}small{color:#4a6070}nav a{margin-right:16px;display:inline-block}@media(max-width:700px){main{padding:20px;margin:0;border-radius:0}table{font-size:13px}th,td{padding:6px}}@media print{body{background:white;font-size:11pt}main{padding:0;margin:0;max-width:none}h2,h3{break-after:avoid}tr,.note,.formula{break-inside:avoid}nav{display:none}a{color:inherit}}
+</style></head><body><main>
+<div class="tag">DROPS-HYDRO MX · VERSIÓN 0.5.4 · GUÍA DEL USUARIO</div>
+<h1>Cómo se calcula la profundidad de agua</h1>
+<p>Esta guía describe el flujo implementado en la pestaña <strong>Inundación</strong>: convierte una lluvia de diseño en lluvia excedente, la aplica a la cuenca y utiliza GRASS <code>r.sim.water</code> (SIMWE) para simular su desplazamiento sobre el terreno.</p>
+<div class="note"><strong>La capa de profundidad está en metros.</strong> Un valor de <strong>0.25</strong> significa 25 cm de agua sobre el terreno representado por el modelo. La salida corresponde al <strong>final del tiempo simulado</strong>; no es el máximo alcanzado durante todo el evento.</div>
+<nav><a href="#entradas">Entradas</a><a href="#calculo">Cálculo</a><a href="#manning">Manning variable</a><a href="#salidas">Salidas y unidades</a><a href="#limites">Interpretación</a></nav>
+
+<h2 id="entradas">1. Qué información utiliza</h2>
+<table><tr><th>Entrada</th><th>Uso en la simulación</th></tr>
+<tr><td>Polígono de cuenca con CRS</td><td>Define el dominio de cálculo y la máscara final.</td></tr>
+<tr><td>Filled DEM con cotas en metros</td><td>Representa la superficie sobre la que escurre el agua. Se lleva a una grilla UTM en metros. El relleno de depresiones modifica el almacenamiento topográfico y debe revisarse.</td></tr>
+<tr><td>Lluvia de diseño y duración</td><td>Proceden de CHIRPS/extremos o del CSV del usuario y de la distribución adoptada. El periodo de retorno seleccionado corresponde a la estimación de lluvia.</td></tr>
+<tr><td>CN medio de la cuenca</td><td>Estima las pérdidas y la lámina de escurrimiento. Proviene del cruce de cobertura y grupo hidrológico del suelo, bajo los supuestos AMC-II de la tabla.</td></tr>
+<tr><td>Manning n</td><td>Representa la resistencia al flujo: variable por cobertura, raster propio o valor uniforme.</td></tr>
+<tr><td>Resolución de simulación</td><td>Tamaño de celda en metros. Para limitar el costo, el módulo aumenta la celda cuando la envolvente supera aproximadamente 250 000 celdas. La resolución efectiva queda en el reporte.</td></tr></table>
+<p>El módulo vuelve a obtener los parámetros de terreno y CN necesarios. Los gastos pico de los métodos racional o hidrograma unitario <strong>no se introducen como caudal aguas arriba en esta simulación</strong>. La red y el cauce principal apoyan el análisis hidrológico, pero no se incorporan como secciones hidráulicas o batimetría.</p>
+
+<h2 id="calculo">2. Secuencia del cálculo</h2>
+<h3>2.1 Preparación del terreno</h3>
+<p>El MDE se reproyecta mediante interpolación bilineal. Se conserva un anillo de celdas vecinas del MDE de origen para obtener las derivadas <code>dx = ∂z/∂x</code> y <code>dy = ∂z/∂y</code>, ambas en m/m, sin convertir el borde NoData en un salto de elevación. Después se aplica la máscara de cuenca. Se exige al menos 95 % de cobertura válida de elevación y derivadas; el porcentaje utilizado queda registrado.</p>
+<h3>2.2 De precipitación a lluvia excedente</h3>
+<p>Se usa el método SCS-CN con abstracción inicial igual a 0.2S. Con P y las láminas expresadas en milímetros:</p>
+<div class="formula">S = 25400 / CN − 254
+Ia = 0.2 × S
+Pe = 0                              si P ≤ Ia
+Pe = (P − Ia)² / (P + 0.8 × S)       si P &gt; Ia</div>
+<p>Pe es la lámina excedente disponible para escurrir. Se usa un <strong>CN medio</strong> y se aplica Pe uniformemente al dominio válido; el raster de CN no se introduce celda por celda en SIMWE. Debido a la no linealidad de la fórmula, calcular con CN medio no equivale exactamente a promediar escurrimientos calculados por celda.</p>
+<p>La duración se redondea a minutos, con mínimo de un minuto. La intensidad que recibe el modelo es:</p>
+<div class="formula">i_excedente [mm/h] = Pe [mm] / duración_simulada [h]</div>
+<p>Ejemplo: con P = 30 mm, CN = 80 y duración de 1 h, S = 63.5 mm, Ia = 12.7 mm y Pe ≈ 3.704 mm; se aplica una intensidad excedente constante de aproximadamente 3.704 mm/h. Se indica infiltración adicional cero en SIMWE porque las pérdidas ya se descontaron con CN.</p>
+<p>Para duraciones menores de 24 h, la pestaña de extremos aproxima <code>Pd = P24 × (d/24)^b</code>, donde b es el exponente DDF elegido. No es una curva IDF local observada ni un hietograma variable.</p>
+<h3>2.3 Movimiento del agua</h3>
+<p>SIMWE resuelve el escurrimiento superficial con un método de muestreo por trayectorias y tratamiento difusivo del flujo. El plugin entrega elevación, derivadas, intensidad excedente y rugosidad, ejecuta el tiempo solicitado y guarda el estado final. Configura al menos 1000 caminantes numéricos, o dos por celda válida cuando esa cantidad es mayor; los demás parámetros no expuestos usan los valores predeterminados del proveedor GRASS instalado.</p>
+<p>Como interpretación física aproximada de Manning para una lámina ancha, la velocidad varía como <code>v ≈ h^(2/3) × √pendiente / n</code>. Un n mayor incrementa la resistencia; su efecto en profundidad depende también de la pendiente y de la redistribución del agua. Esta relación orientativa no sustituye las ecuaciones y el tratamiento numérico de SIMWE.</p>
+
+<h2 id="manning">3. Raster de Manning variable</h2>
+<p>La opción predeterminada <strong>Variable por cobertura</strong> utiliza el recorte de cobertura obtenido durante el cálculo del CN y asigna un n a cada clase. El resultado se alinea por vecino más cercano con la grilla de inundación y se guarda como <code>manning_cuenca.tif</code>. Se entrega al parámetro <code>man</code> del solver: participa en el cálculo, no modifica la profundidad después de calcularla. Si toda la cuenca tiene una sola clase, el raster puede tener un único valor.</p>
+<p>También se puede seleccionar <strong>Raster Manning del usuario</strong>, con valores n positivos y CRS definido, o <strong>Uniforme</strong>, que utiliza el valor numérico de la interfaz. En todos los casos se guarda el raster utilizado. El coeficiente n tiene unidades SI <strong>s/m<sup>1/3</sup></strong>; no es una pendiente, un CN ni una profundidad.</p>
+<p>La tabla inicial es una propuesta del plugin por clases amplias WorldCover. Es una hipótesis editable, no una clasificación oficial WorldCover–Manning ni una calibración local. Los rangos de referencia de HEC-RAS orientan la selección de rugosidad por cobertura, pero sus clases NLCD no son equivalentes directas a WorldCover.</p>
+<table><tr><th>Clase WorldCover</th><th>Cobertura</th><th>n inicial</th></tr>
+<tr><td>10</td><td>Arbolado</td><td>0.120</td></tr><tr><td>20</td><td>Matorral</td><td>0.060</td></tr><tr><td>30</td><td>Pastizal</td><td>0.035</td></tr><tr><td>40</td><td>Cultivos</td><td>0.050</td></tr><tr><td>50</td><td>Construido</td><td>0.120</td></tr><tr><td>60</td><td>Suelo desnudo</td><td>0.025</td></tr><tr><td>70</td><td>Nieve/hielo</td><td>0.025</td></tr><tr><td>80</td><td>Agua</td><td>0.030</td></tr><tr><td>90</td><td>Humedal herbáceo</td><td>0.070</td></tr><tr><td>95</td><td>Manglar</td><td>0.120</td></tr><tr><td>100</td><td>Musgos/líquenes</td><td>0.040</td></tr></table>
+<p>Usa <strong>Exportar tabla Manning inicial</strong> para obtener un CSV editable con columnas <code>class,description,n</code>. La tabla personalizada sustituye completamente la inicial y debe cubrir todas las clases presentes en el dominio. El plugin admite 0 &lt; n ≤ 1 y detiene el cálculo si faltan valores; no rellena huecos con un n arbitrario. La tabla de CN tiene sus propias clases y controles, independientes de esta tabla.</p>
+<p>Conviene revisar la rugosidad con información local y comparar escenarios. El arbolado, los cultivos y las zonas construidas reúnen condiciones hidráulicas muy diferentes dentro de una misma clase. El n de agua no aporta geometría de cauce ni profundidades batimétricas.</p>
+
+<h2 id="salidas">4. Archivos y unidades</h2>
+<table><tr><th>Archivo</th><th>Unidad</th><th>Significado</th></tr>
+<tr><td><code>depth_cuenca.tif</code></td><td>m</td><td>Espesor de agua al final del tiempo simulado. No es cota absoluta ni máximo temporal.</td></tr>
+<tr><td><code>discharge_cuenca.tif</code></td><td>m³/s</td><td>Descarga superficial informada por SIMWE. No sumar todas las celdas para estimar un caudal de salida: puede contarse el mismo flujo varias veces.</td></tr>
+<tr><td><code>error_cuenca.tif</code></td><td>m</td><td>Error numérico estimado por el método. No expresa toda la incertidumbre de lluvia, suelo, terreno y rugosidad.</td></tr>
+<tr><td><code>manning_cuenca.tif</code></td><td>s/m<sup>1/3</sup></td><td>Rugosidad usada en la simulación. NoData fuera del dominio.</td></tr>
+<tr><td><code>elevation.tif</code>, <code>dx.tif</code>, <code>dy.tif</code></td><td>m; m/m</td><td>Terreno y derivadas entregados al solver.</td></tr>
+<tr><td><code>tabla_manning_aplicada.csv</code></td><td>n y celdas</td><td>Clases y valores utilizados cuando se estima por cobertura.</td></tr>
+<tr><td><code>escenario.json</code>, <code>resumen_inundacion.csv</code></td><td>Indicadas por campo</td><td>Entradas, resolución efectiva, duración, rugosidad, estadísticas y control de volumen.</td></tr>
+<tr><td><code>Como_se_calculo.html</code></td><td>—</td><td>Explicación con los valores concretos de esa ejecución y enlace a esta guía, que se copia junto al resultado.</td></tr>
+<tr><td><code>processing.log</code>, <code>profundidad.qml</code></td><td>—</td><td>Registro del procesamiento y estilo de visualización de profundidad.</td></tr></table>
+<p><strong>Cero</strong> representa resultado seco en una celda válida. <strong>NoData</strong> (habitualmente −9999) representa una celda excluida o sin resultado; no es una profundidad negativa. El área mojada del resumen considera profundidad final mayor que 0.01 m. El máximo informado es el mayor valor espacial del raster final.</p>
+
+<h2 id="limites">5. Cómo interpretar y revisar el resultado</h2>
+<p>El módulo estima el volumen superficial final mediante la suma de profundidad positiva por superficie de celda. Lo compara con el volumen de lluvia excedente aplicado al dominio. Si el almacenamiento supera ese aporte más de 10 %, marca <strong>REVISAR: resultado no validado</strong>. Este control puede detectar una inconsistencia, pero no integra el caudal que salió por el borde y no constituye un balance completo. Un control aprobado no valida por sí solo el modelo.</p>
+<div class="limits"><strong>Alcance del mapa:</strong> simulación de escurrimiento superficial con lluvia excedente uniforme. No incluye automáticamente secciones del río, puentes, alcantarillas, drenaje urbano, nivel aguas abajo, mareas, roturas de bordos ni un hidrograma fluvial de entrada. No es, por sí solo, una delimitación calibrada del desbordamiento de un río.</div>
+<ul><li>Verifica CRS, unidades verticales del MDE, resolución efectiva y cobertura de datos.</li><li>Revisa el efecto del relleno del MDE; un modelo de superficie puede contener edificios o vegetación que alteran el flujo.</li><li>Examina Manning y CN, sus fuentes, supuestos y cambios de cobertura respecto al año de los datos.</li><li>Consulta el registro y el control de volumen antes de interpretar profundidades.</li><li>Compara con observaciones locales, huellas de eventos y escenarios de lluvia, CN, n y resolución. Los colores del mapa son una escala de visualización, no categorías oficiales de peligro.</li></ul>
+<p>El periodo de retorno de la lluvia no garantiza por sí mismo el mismo periodo de retorno de la profundidad. Para estudiar desbordamiento fluvial se requiere una configuración hidráulica con información de cauce, condiciones de frontera y contraste con observaciones.</p>
+
+<h2>6. Referencias y trazabilidad</h2>
+<p><strong>Estado de verificación de esta versión:</strong> se ejecutó GRASS con un terreno sintético y dos rugosidades, se verificó el uso del raster Manning y se observó un cambio de profundidad respecto al caso uniforme. Se comprobaron unidades, tabla personalizada y detección de clases faltantes. Sin embargo, el control de volumen de ese escenario sintético marcó REVISAR por almacenamiento superior al aporte. La prueba confirma el funcionamiento de la implementación, no la validez hidráulica del resultado. La discrepancia requiere investigación y validación antes de usar estos mapas para decisiones de diseño.</p>
+<ul><li><a href="https://grass.osgeo.org/grass-stable/manuals/r.sim.water.html">GRASS GIS: r.sim.water</a>, parámetros, unidades y método SIMWE.</li>
+<li><a href="https://www.hec.usace.army.mil/confluence/rasdocs/rmum/6.0/land-classification-layers">HEC-RAS Mapper: Land Classification Layers</a>, asignación de rugosidad por cobertura y rangos orientativos.</li>
+<li><a href="https://esa-worldcover.org/en/data-access">ESA WorldCover</a>, fuente de cobertura terrestre.</li></ul>
+<p><small>Documento basado en el código de DROPS-Hydro MX 0.5.4. La tabla de Manning se incorpora como escenario inicial editable. Guarda esta guía, escenario.json, los rasters y processing.log junto con cada proyecto para poder revisar qué se calculó.</small></p>
+</main></body></html>

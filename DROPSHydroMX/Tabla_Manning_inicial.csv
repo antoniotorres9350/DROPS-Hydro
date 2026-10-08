@@ -1,0 +1,12 @@
+﻿class,description,n
+10,Arbolado,0.12
+20,Matorral,0.06
+30,Pastizal,0.035
+40,Cultivos,0.05
+50,Construido,0.12
+60,Suelo desnudo,0.025
+70,Nieve/hielo,0.025
+80,Agua,0.03
+90,Humedal herbaceo,0.07
+95,Manglar,0.12
+100,Musgos/liquenes,0.04

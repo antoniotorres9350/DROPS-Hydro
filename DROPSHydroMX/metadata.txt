@@ -1,0 +1,10 @@
+[general]
+name=DROPS-Hydro MX
+qgisMinimumVersion=3.28
+description=Hydrologic extremes and watershed analytics for Mexico: fast DEM workflow, morphometry, CHIRPS, return-period flows, flood maps, drought screening and lightweight AI/ML.
+version=0.5.4
+author=Prof. Juan Antonio Torres Martinez — DROPS Research Group, Tecnologico de Monterrey
+email=antoniotorres@tec.mx
+about=Hydrology tools with spatial Manning roughness for SIMWE, explicit raster units and a user guide explaining the inundation calculation. See Guia_inundacion.html and earlier release notes for methods, testing and limitations.
+category=Raster,Vector,Analysis
+experimental=True

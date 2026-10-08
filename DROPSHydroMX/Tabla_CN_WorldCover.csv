@@ -1,0 +1,10 @@
+﻿class,description,A,B,C,D
+10,Woods good,30,55,70,77
+20,Brush good,30,48,65,73
+30,Grassland good,39,61,74,80
+40,Row crops straight good,67,78,85,89
+50,Built-up assumed impervious,98,98,98,98
+60,Bare fallow,77,86,91,94
+80,Open water,100,100,100,100
+90,Wetland assumed saturated,100,100,100,100
+95,Mangrove assumed saturated,100,100,100,100
